@@ -1,0 +1,23 @@
+{
+  "version": 1,
+  "skills": {
+    "drift-testing": {
+      "source": "pactflow/pactflow-agent-skills",
+      "sourceType": "github",
+      "skillPath": "plugins/swagger-contract-testing/skills/drift-testing/SKILL.md",
+      "computedHash": "5c8ec79be41c0cd4ff385ec92fd8889b5b8ed8f488a8e8e57aef4b7c6b44a492"
+    },
+    "openapi-parser": {
+      "source": "pactflow/pactflow-agent-skills",
+      "sourceType": "github",
+      "skillPath": "plugins/swagger-contract-testing/skills/openapi-parser/SKILL.md",
+      "computedHash": "e898a37cd2f7451f7e7b8d84f23ed9e999964abf95c90cde0d72bee48a932ded"
+    },
+    "pactflow": {
+      "source": "pactflow/pactflow-agent-skills",
+      "sourceType": "github",
+      "skillPath": "plugins/swagger-contract-testing/skills/pactflow/SKILL.md",
+      "computedHash": "ea7ecea5b9239c00b0dd0ee1c2c05f4c2c948bfc2249a97002b9169b99e5d895"
+    }
+  }
+}

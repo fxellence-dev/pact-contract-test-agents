@@ -1,0 +1,411 @@
+openapi: "3.0.3"
+info:
+  title: Merchant Account Management Service API
+  description: |
+    Manages merchant accounts and issues JWT tokens used by the Payment Service.
+
+    ## Authentication Flow
+    1. Call `POST /api/merchants/auth/token` with your `merchantId`, `apiKey`, and `apiSecret`.
+    2. Use the returned JWT as `Authorization: Bearer <token>` on all other protected endpoints.
+
+    ## Pre-seeded Test Merchants
+    | merchantId | apiKey          | apiSecret           |
+    |------------|-----------------|---------------------|
+    | MERCH001   | mk_live_abc123  | ms_live_secret001   |
+    | MERCH002   | mk_live_def456  | ms_live_secret002   |
+    | MERCH003   | mk_live_ghi789  | ms_live_secret003   |
+  version: "1.0.0"
+  contact:
+    name: Payment Platform Team
+    email: platform@example.com
+  license:
+    name: Apache 2.0
+    url: https://www.apache.org/licenses/LICENSE-2.0
+
+servers:
+  - url: http://localhost:8081
+    description: Local Development
+
+security:
+  - BearerAuth: []
+
+tags:
+  - name: Authentication
+    description: Public endpoint — obtain a JWT token
+  - name: Merchants
+    description: Protected merchant account management (requires JWT)
+
+paths:
+  /api/merchants/auth/token:
+    post:
+      tags: [Authentication]
+      summary: Authenticate merchant — get JWT token
+      description: |
+        Validates `merchantId` + `apiKey` + `apiSecret`.
+        Returns a signed JWT that must be passed as `Authorization: Bearer <token>`
+        on all protected endpoints in both this service and the Payment Service.
+      operationId: authenticateMerchant
+      security: []    # Public — no JWT required
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AuthRequest'
+            examples:
+              merch001:
+                summary: Authenticate MERCH001
+                value:
+                  merchantId: MERCH001
+                  apiKey: mk_live_abc123
+                  apiSecret: ms_live_secret001
+      responses:
+        '200':
+          description: Authentication successful
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+              example:
+                token: eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJNRVJDSDAwMSIsIm1lcmNoYW50SWQiOiJNRVJDSDAwMSIsIm1lcmNoYW50TmFtZSI6IkFjbWUgQ29ycCIsImlhdCI6MTcxOTAwMDAwMCwiZXhwIjoxNzE5MDg2NDAwfQ.signature
+                tokenType: Bearer
+                expiresIn: 86400
+                merchantId: MERCH001
+                merchantName: Acme Corp
+        '400':
+          description: Validation error (missing required fields)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Invalid credentials
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/merchants:
+    get:
+      tags: [Merchants]
+      summary: List all merchants
+      description: Returns all registered merchant accounts.
+      operationId: listMerchants
+      responses:
+        '200':
+          description: Merchant list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/MerchantDto'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+    post:
+      tags: [Merchants]
+      summary: Create a new merchant account
+      operationId: createMerchant
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MerchantCreateRequest'
+            examples:
+              newMerchant:
+                summary: Create MERCH004
+                value:
+                  merchantId: MERCH004
+                  name: New Retailer LLC
+                  email: newretailer@example.com
+                  apiKey: mk_live_new123
+                  apiSecret: ms_live_newsecret
+                  businessType: RETAIL
+                  contactPhone: +1-555-0404
+                  address: 404 Business Park, Austin, TX 78701
+      responses:
+        '201':
+          description: Merchant created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MerchantDto'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '409':
+          description: Merchant ID or email already exists
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/merchants/{merchantId}:
+    parameters:
+      - name: merchantId
+        in: path
+        required: true
+        description: Merchant business identifier
+        schema:
+          type: string
+          example: MERCH001
+
+    get:
+      tags: [Merchants]
+      summary: Get merchant by ID
+      description: |
+        Returns a single merchant record.
+        This endpoint is called internally by the **Payment Service** using the JWT-extracted `merchantId`.
+      operationId: getMerchant
+      responses:
+        '200':
+          description: Merchant found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MerchantDto'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    put:
+      tags: [Merchants]
+      summary: Update a merchant account
+      description: Partial update — only provided fields are changed.
+      operationId: updateMerchant
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MerchantUpdateRequest'
+      responses:
+        '200':
+          description: Merchant updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MerchantDto'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    delete:
+      tags: [Merchants]
+      summary: Delete a merchant account
+      operationId: deleteMerchant
+      responses:
+        '204':
+          description: Merchant deleted
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: JWT obtained from POST /api/merchants/auth/token
+
+  responses:
+    Unauthorized:
+      description: Missing or invalid JWT
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            status: 401
+            error: Unauthorized
+            message: Full authentication is required to access this resource
+            timestamp: '2026-06-20T10:00:00'
+            path: /api/merchants
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            status: 404
+            error: Not Found
+            message: Merchant not found: MERCH999
+            timestamp: '2026-06-20T10:00:00'
+            path: /api/merchants/MERCH999
+    BadRequest:
+      description: Validation failed
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+
+  schemas:
+    AuthRequest:
+      type: object
+      required: [merchantId, apiKey, apiSecret]
+      properties:
+        merchantId:
+          type: string
+          description: Unique merchant business identifier
+          example: MERCH001
+        apiKey:
+          type: string
+          description: Merchant API key
+          example: mk_live_abc123
+        apiSecret:
+          type: string
+          description: Merchant API secret
+          example: ms_live_secret001
+
+    AuthResponse:
+      type: object
+      properties:
+        token:
+          type: string
+          description: Signed JWT token
+          example: eyJhbGciOiJIUzI1NiJ9...
+        tokenType:
+          type: string
+          example: Bearer
+        expiresIn:
+          type: integer
+          format: int64
+          description: Token lifetime in seconds
+          example: 86400
+        merchantId:
+          type: string
+          example: MERCH001
+        merchantName:
+          type: string
+          example: Acme Corp
+
+    MerchantDto:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+          example: 1
+        merchantId:
+          type: string
+          example: MERCH001
+        name:
+          type: string
+          example: Acme Corp
+        email:
+          type: string
+          format: email
+          example: acme@example.com
+        apiKey:
+          type: string
+          example: mk_live_abc123
+        status:
+          $ref: '#/components/schemas/MerchantStatus'
+        businessType:
+          type: string
+          example: RETAIL
+        contactPhone:
+          type: string
+          example: +1-555-0101
+        address:
+          type: string
+          example: 100 Commerce St, New York, NY 10001
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    MerchantCreateRequest:
+      type: object
+      required: [merchantId, name, email, apiKey, apiSecret]
+      properties:
+        merchantId:
+          type: string
+          pattern: '^[A-Z0-9_-]{4,20}$'
+          description: Unique uppercase alphanumeric ID (4–20 chars)
+          example: MERCH004
+        name:
+          type: string
+          minLength: 2
+          maxLength: 100
+          example: New Retailer LLC
+        email:
+          type: string
+          format: email
+          example: newretailer@example.com
+        apiKey:
+          type: string
+          example: mk_live_new123
+        apiSecret:
+          type: string
+          minLength: 8
+          description: Will be stored as BCrypt hash
+          example: ms_live_newsecret
+        businessType:
+          type: string
+          example: RETAIL
+        contactPhone:
+          type: string
+          example: +1-555-0404
+        address:
+          type: string
+          example: 404 Business Park, Austin, TX 78701
+
+    MerchantUpdateRequest:
+      type: object
+      description: All fields are optional — only provided fields are updated
+      properties:
+        name:
+          type: string
+          example: Updated Corp Name
+        email:
+          type: string
+          format: email
+          example: updated@example.com
+        status:
+          $ref: '#/components/schemas/MerchantStatus'
+        businessType:
+          type: string
+          example: WHOLESALE
+        contactPhone:
+          type: string
+          example: +1-555-9999
+        address:
+          type: string
+          example: 999 New Street, Dallas, TX 75201
+
+    MerchantStatus:
+      type: string
+      enum: [ACTIVE, INACTIVE, SUSPENDED, PENDING_VERIFICATION]
+      example: ACTIVE
+
+    ErrorResponse:
+      type: object
+      properties:
+        status:
+          type: integer
+          example: 404
+        error:
+          type: string
+          example: Not Found
+        message:
+          type: string
+          example: Merchant not found: MERCH999
+        timestamp:
+          type: string
+          format: date-time
+        path:
+          type: string
+          example: /api/merchants/MERCH999

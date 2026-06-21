@@ -1,0 +1,339 @@
+openapi: "3.0.3"
+info:
+  title: Payment Acceptance & Processing Service API
+  description: |
+    Processes payments on behalf of authenticated merchants.
+
+    ## Authentication Flow
+    1. Obtain a JWT from the **Merchant Service**: `POST http://localhost:8081/api/merchants/auth/token`
+    2. Include the token on every request: `Authorization: Bearer <token>`
+    3. The `merchantId` is **automatically extracted from the JWT** — you do **not** include it in the request body.
+
+    ## Inter-Service Call
+    After validating the JWT, the Payment Service calls:
+    ```
+    GET http://localhost:8081/api/merchants/{merchantId}
+    Authorization: Bearer <forwarded-token>
+    ```
+    to verify the merchant account is still **ACTIVE** before processing the payment.
+
+    ## Payment Processing
+    The current implementation simulates a payment gateway. In production, replace the stub
+    in `PaymentService.processPayment()` with a real processor (Stripe, Adyen, Braintree, etc.).
+  version: "1.0.0"
+  contact:
+    name: Payment Platform Team
+    email: platform@example.com
+  license:
+    name: Apache 2.0
+    url: https://www.apache.org/licenses/LICENSE-2.0
+
+servers:
+  - url: http://localhost:8082
+    description: Local Development
+
+security:
+  - BearerAuth: []    # ALL endpoints require JWT
+
+tags:
+  - name: Payments
+    description: Payment submission and retrieval
+
+paths:
+  /api/payments:
+    post:
+      tags: [Payments]
+      summary: Process a new payment
+      description: |
+        Submits a payment for processing.
+
+        - The `merchantId` is extracted from the JWT — no need to provide it in the body.
+        - The service calls the Merchant Service to verify the account is `ACTIVE`.
+        - Returns the completed transaction including the `transactionId`.
+      operationId: processPayment
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PaymentRequest'
+            examples:
+              cardPayment:
+                summary: Card payment
+                value:
+                  amount: 149.99
+                  currency: USD
+                  paymentMethod: CARD
+                  payerName: John Doe
+                  payerEmail: john.doe@example.com
+                  description: "Order #12345 — 2x Widget"
+              bankTransfer:
+                summary: Bank transfer
+                value:
+                  amount: 5000.00
+                  currency: EUR
+                  paymentMethod: BANK_TRANSFER
+                  payerName: Jane Smith
+                  payerEmail: jane.smith@example.com
+                  description: Invoice INV-2026-001
+      responses:
+        '201':
+          description: Payment processed successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaymentResponse'
+              example:
+                id: 1
+                transactionId: txn_550e8400-e29b-41d4-a716-446655440000
+                merchantId: MERCH001
+                merchantName: Acme Corp
+                amount: 149.99
+                currency: USD
+                status: COMPLETED
+                paymentMethod: CARD
+                payerName: John Doe
+                payerEmail: john.doe@example.com
+                description: "Order #12345 — 2x Widget"
+                processorReference: AUTH_A1B2C3D4
+                createdAt: '2026-06-20T10:00:00'
+                updatedAt: '2026-06-20T10:00:01'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '422':
+          description: Merchant account not active
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '502':
+          description: Merchant Service unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+    get:
+      tags: [Payments]
+      summary: List payments for the authenticated merchant
+      description: Returns all payments belonging to the merchant identified by the JWT.
+      operationId: listPayments
+      responses:
+        '200':
+          description: Payment list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/PaymentResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /api/payments/{transactionId}:
+    parameters:
+      - name: transactionId
+        in: path
+        required: true
+        description: Unique transaction identifier returned when the payment was created
+        schema:
+          type: string
+          example: txn_550e8400-e29b-41d4-a716-446655440000
+
+    get:
+      tags: [Payments]
+      summary: Get payment by transaction ID
+      description: Retrieves a specific payment. Only the owning merchant can access it.
+      operationId: getPayment
+      responses:
+        '200':
+          description: Payment found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaymentResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/payments/{transactionId}/cancel:
+    parameters:
+      - name: transactionId
+        in: path
+        required: true
+        schema:
+          type: string
+          example: txn_550e8400-e29b-41d4-a716-446655440000
+
+    patch:
+      tags: [Payments]
+      summary: Cancel a payment
+      description: |
+        Cancels a `PENDING` or `PROCESSING` payment.
+        Payments in `COMPLETED` state cannot be cancelled — use a refund workflow instead.
+      operationId: cancelPayment
+      responses:
+        '200':
+          description: Payment cancelled
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaymentResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          description: Payment cannot be cancelled in its current state
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: JWT obtained from Merchant Service POST /api/merchants/auth/token
+
+  responses:
+    Unauthorized:
+      description: Missing or invalid JWT
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            status: 401
+            error: Unauthorized
+            message: Full authentication is required to access this resource
+            timestamp: '2026-06-20T10:00:00'
+            path: /api/payments
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            status: 404
+            error: Not Found
+            message: 'Payment not found: txn_abc123'
+            timestamp: '2026-06-20T10:00:00'
+            path: /api/payments/txn_abc123
+    BadRequest:
+      description: Validation failed
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+
+  schemas:
+    PaymentRequest:
+      type: object
+      required: [amount, currency, paymentMethod]
+      properties:
+        amount:
+          type: number
+          format: double
+          minimum: 0.01
+          description: Payment amount (up to 4 decimal places)
+          example: 149.99
+        currency:
+          type: string
+          pattern: '^[A-Z]{3}$'
+          description: ISO 4217 currency code
+          example: USD
+        paymentMethod:
+          type: string
+          enum: [CARD, BANK_TRANSFER, WALLET]
+          example: CARD
+        payerName:
+          type: string
+          example: John Doe
+        payerEmail:
+          type: string
+          format: email
+          example: john.doe@example.com
+        description:
+          type: string
+          maxLength: 255
+          example: "Order #12345 — 2x Widget"
+
+    PaymentResponse:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+          example: 1
+        transactionId:
+          type: string
+          description: Unique transaction reference (txn_<UUID>)
+          example: txn_550e8400-e29b-41d4-a716-446655440000
+        merchantId:
+          type: string
+          example: MERCH001
+        merchantName:
+          type: string
+          example: Acme Corp
+        amount:
+          type: number
+          format: double
+          example: 149.99
+        currency:
+          type: string
+          example: USD
+        status:
+          $ref: '#/components/schemas/PaymentStatus'
+        paymentMethod:
+          type: string
+          example: CARD
+        payerName:
+          type: string
+          example: John Doe
+        payerEmail:
+          type: string
+          example: john.doe@example.com
+        description:
+          type: string
+          example: "Order #12345"
+        processorReference:
+          type: string
+          description: Authorization code from payment processor
+          example: AUTH_A1B2C3D4
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    PaymentStatus:
+      type: string
+      enum: [PENDING, PROCESSING, COMPLETED, FAILED, CANCELLED, REFUNDED]
+      example: COMPLETED
+
+    ErrorResponse:
+      type: object
+      properties:
+        status:
+          type: integer
+          example: 404
+        error:
+          type: string
+          example: Not Found
+        message:
+          type: string
+          example: 'Payment not found: txn_abc123'
+        timestamp:
+          type: string
+          format: date-time
+        path:
+          type: string
+          example: /api/payments/txn_abc123
