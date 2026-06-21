@@ -190,59 +190,67 @@ Live Swagger UIs (when running):
 .
 ├── merchant-service/
 │   ├── pom.xml
-│   └── src/main/java/com/example/merchant/
-│       ├── MerchantServiceApplication.java
-│       ├── DataInitializer.java           ← seeds test merchants on startup
-│       ├── config/
-│       │   ├── SecurityConfig.java        ← JWT filter, public auth endpoint
-│       │   └── OpenApiConfig.java
-│       ├── security/
-│       │   ├── JwtUtil.java               ← generates & validates JWTs
-│       │   └── JwtAuthenticationFilter.java
-│       ├── model/
-│       │   ├── Merchant.java
-│       │   └── MerchantStatus.java
-│       ├── repository/MerchantRepository.java
-│       ├── dto/
-│       │   ├── AuthRequest.java
-│       │   ├── AuthResponse.java
-│       │   ├── MerchantDto.java
-│       │   ├── MerchantCreateRequest.java
-│       │   ├── MerchantUpdateRequest.java
-│       │   └── ErrorResponse.java
-│       ├── service/MerchantService.java
-│       ├── controller/MerchantController.java
-│       └── exception/
-│           ├── GlobalExceptionHandler.java
-│           ├── MerchantNotFoundException.java
-│           └── UnauthorizedException.java
+│   └── src/
+│       ├── main/java/com/example/merchant/
+│       │   ├── MerchantServiceApplication.java
+│       │   ├── DataInitializer.java           ← seeds test merchants on startup
+│       │   ├── config/
+│       │   │   ├── SecurityConfig.java        ← JWT filter, public auth endpoint
+│       │   │   └── OpenApiConfig.java
+│       │   ├── security/
+│       │   │   ├── JwtUtil.java               ← generates & validates JWTs
+│       │   │   └── JwtAuthenticationFilter.java
+│       │   ├── model/
+│       │   │   ├── Merchant.java
+│       │   │   └── MerchantStatus.java
+│       │   ├── repository/MerchantRepository.java
+│       │   ├── dto/
+│       │   │   ├── AuthRequest.java
+│       │   │   ├── AuthResponse.java
+│       │   │   ├── MerchantDto.java
+│       │   │   ├── MerchantCreateRequest.java
+│       │   │   ├── MerchantUpdateRequest.java
+│       │   │   └── ErrorResponse.java
+│       │   ├── service/MerchantService.java
+│       │   ├── controller/MerchantController.java
+│       │   └── exception/
+│       │       ├── GlobalExceptionHandler.java
+│       │       ├── MerchantNotFoundException.java
+│       │       └── UnauthorizedException.java
+│       └── test/java/com/example/merchant/pact/
+│           └── MerchantServicePactProviderTest.java  ← Pact provider verification
 ├── payment-service/
 │   ├── pom.xml
-│   └── src/main/java/com/example/payment/
-│       ├── PaymentServiceApplication.java
-│       ├── config/
-│       │   ├── SecurityConfig.java        ← all endpoints require JWT
-│       │   ├── OpenApiConfig.java
-│       │   └── RestTemplateConfig.java
-│       ├── security/
-│       │   ├── JwtUtil.java               ← validates JWTs (same secret as merchant-service)
-│       │   └── JwtAuthenticationFilter.java
-│       ├── model/
-│       │   ├── Payment.java
-│       │   └── PaymentStatus.java
-│       ├── repository/PaymentRepository.java
-│       ├── dto/
-│       │   ├── PaymentRequest.java
-│       │   ├── PaymentResponse.java
-│       │   ├── MerchantDto.java
-│       │   └── ErrorResponse.java
-│       ├── service/PaymentService.java
-│       ├── client/MerchantClient.java     ← calls merchant-service with forwarded JWT
-│       ├── controller/PaymentController.java
-│       └── exception/
-│           ├── GlobalExceptionHandler.java
-│           ├── PaymentNotFoundException.java
-│           └── MerchantServiceException.java
+│   └── src/
+│       ├── main/java/com/example/payment/
+│       │   ├── PaymentServiceApplication.java
+│       │   ├── config/
+│       │   │   ├── SecurityConfig.java        ← all endpoints require JWT
+│       │   │   ├── OpenApiConfig.java
+│       │   │   └── RestTemplateConfig.java
+│       │   ├── security/
+│       │   │   ├── JwtUtil.java               ← validates JWTs (same secret as merchant-service)
+│       │   │   └── JwtAuthenticationFilter.java
+│       │   ├── model/
+│       │   │   ├── Payment.java
+│       │   │   └── PaymentStatus.java
+│       │   ├── repository/PaymentRepository.java
+│       │   ├── dto/
+│       │   │   ├── PaymentRequest.java
+│       │   │   ├── PaymentResponse.java
+│       │   │   ├── MerchantDto.java
+│       │   │   └── ErrorResponse.java
+│       │   ├── service/PaymentService.java
+│       │   ├── client/MerchantClient.java     ← calls merchant-service with forwarded JWT
+│       │   ├── controller/PaymentController.java
+│       │   └── exception/
+│       │       ├── GlobalExceptionHandler.java
+│       │       ├── PaymentNotFoundException.java
+│       │       └── MerchantServiceException.java
+│       └── test/java/com/example/payment/pact/
+│           └── MerchantClientPactTest.java    ← Pact consumer tests
+├── pact-broker/
+│   └── docker-compose.yml                    ← self-hosted Pact Broker + Postgres
 └── openapi/
     ├── merchant-service-openapi.yml
     └── payment-service-openapi.yml
@@ -268,3 +276,161 @@ merchant:
     url: http://localhost:8081
 ```
 Change this when deploying to Kubernetes or other environments.
+
+---
+
+## Contract Testing with Pact
+
+This project uses **[Pact](https://docs.pact.io)** consumer-driven contract testing to verify the inter-service integration between `payment-service` (consumer) and `merchant-service` (provider) without running both services simultaneously.
+
+### Why contract testing?
+
+The Payment Service calls one endpoint on the Merchant Service:
+```
+GET /api/merchants/{merchantId}
+Authorization: Bearer <forwarded-JWT>
+```
+If the Merchant Service team renames the `status` field, changes the error response shape, or returns `403` instead of `401`, the Payment Service breaks at runtime. Pact catches these breaks automatically — before deployment.
+
+### How it works
+
+```
+payment-service                  Pact Broker               merchant-service
+      │                         (localhost:9292)                  │
+      │                                                           │
+      │  1. Consumer tests run                                    │
+      │     MerchantClient called against Pact mock server        │
+      │     Pact records every request + expected response        │
+      │                                                           │
+      │  2. Pact file published ──────────────────────────────►  │
+      │     payment-service-merchant-service.json                 │
+      │                                                           │
+      │                         3. Provider test pulls pact ──────│
+      │                            Replays each interaction       │
+      │                            against the real               │
+      │                            merchant-service               │
+      │                                                           │
+      │                         4. Results published ─────────────│
+      │                                                           │
+      │  5. can-i-deploy ──────►│◄─── can-i-deploy ──────────────│
+      │     "safe to deploy"         "safe to deploy"             │
+```
+
+### Interactions covered (5 total)
+
+| # | Scenario | Request | Expected response |
+|---|---|---|---|
+| 1 | Merchant is ACTIVE | `GET /api/merchants/MERCH001` + valid JWT | `200` `{ status: "ACTIVE" }` |
+| 2 | Merchant is INACTIVE | `GET /api/merchants/MERCH001` + valid JWT | `200` `{ status: "INACTIVE" }` |
+| 3 | Merchant is SUSPENDED | `GET /api/merchants/MERCH001` + valid JWT | `200` `{ status: "SUSPENDED" }` |
+| 4 | Merchant not found | `GET /api/merchants/MERCH999` + valid JWT | `404` with error body |
+| 5 | Invalid JWT | `GET /api/merchants/MERCH001` + `Bearer invalid-token` | `401` with error body |
+
+> **Bug caught by contract testing:** The Merchant Service was returning `403` instead of `401` for requests with an invalid JWT. The provider verification test surfaced this immediately, and `SecurityConfig.java` was fixed to return the correct `401` with a JSON body.
+
+---
+
+### Prerequisites
+
+- Docker + Docker Compose (for the Pact Broker)
+- Java 17+ and Maven 3.8+
+
+---
+
+### Step 1 — Start the Pact Broker
+
+```bash
+cd pact-broker
+docker compose up -d
+```
+
+The broker UI is available at **http://localhost:9292** (login: `admin` / `admin`).
+
+---
+
+### Step 2 — Run the consumer tests (payment-service)
+
+Generates the pact file in `payment-service/target/pacts/`.
+
+```bash
+cd payment-service
+mvn test -Dtest=MerchantClientPactTest
+```
+
+---
+
+### Step 3 — Publish the pact to the broker
+
+```bash
+cd /path/to/project/root
+
+docker run --rm --network host \
+  -v $(pwd)/payment-service/target/pacts:/pacts \
+  pactfoundation/pact-cli:latest \
+  broker publish /pacts \
+  --consumer-app-version 1.0.0 \
+  --branch main \
+  --broker-base-url http://localhost:9292 \
+  --broker-username admin \
+  --broker-password admin
+```
+
+---
+
+### Step 4 — Run the provider verification (merchant-service)
+
+Pulls the pact from the broker and replays all 5 interactions against the real Merchant Service.
+
+```bash
+cd merchant-service
+mvn test -Dtest=MerchantServicePactProviderTest
+```
+
+---
+
+### Step 5 — Publish verification results
+
+```bash
+cd merchant-service
+mvn test -Dtest=MerchantServicePactProviderTest \
+  -Dpact.verifier.publishResults=true \
+  -Dpact.provider.version=1.0.0 \
+  -Dpact.provider.branch=main
+```
+
+---
+
+### Step 6 — Check can-i-deploy
+
+Run this before deploying either service to confirm the contract matrix is green.
+
+```bash
+# Is payment-service safe to deploy?
+docker run --rm --network host pactfoundation/pact-cli:latest \
+  broker can-i-deploy \
+  --pacticipant payment-service --version 1.0.0 \
+  --to-environment production \
+  --broker-base-url http://localhost:9292 \
+  --broker-username admin --broker-password admin
+
+# Is merchant-service safe to deploy?
+docker run --rm --network host pactfoundation/pact-cli:latest \
+  broker can-i-deploy \
+  --pacticipant merchant-service --version 1.0.0 \
+  --to-environment production \
+  --broker-base-url http://localhost:9292 \
+  --broker-username admin --broker-password admin
+```
+
+Both should respond: `Computer says yes ✅`
+
+---
+
+### Key files
+
+| File | Role |
+|---|---|
+| `payment-service/src/test/.../MerchantClientPactTest.java` | Consumer test — defines the 5 interactions |
+| `payment-service/target/pacts/payment-service-merchant-service.json` | Generated pact file (gitignored) |
+| `merchant-service/src/test/.../MerchantServicePactProviderTest.java` | Provider test — verifies against real service |
+| `pact-broker/docker-compose.yml` | Self-hosted Pact Broker + Postgres |

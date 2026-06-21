@@ -1,8 +1,10 @@
 package com.example.merchant.config;
 
 import com.example.merchant.security.JwtAuthenticationFilter;
+import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.http.MediaType;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
@@ -12,6 +14,8 @@ import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
+
+import java.time.LocalDateTime;
 
 @Configuration
 @EnableWebSecurity
@@ -49,7 +53,24 @@ public class SecurityConfig {
                 // All other endpoints require a valid JWT
                 .anyRequest().authenticated()
             )
-            .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
+            .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class)
+            .exceptionHandling(ex -> ex
+                // Return 401 + JSON body when a request has no valid authentication.
+                // Without this, Spring Security's default is 403 for anonymous users
+                // hitting protected endpoints (because AnonymousAuthenticationFilter
+                // sets an anonymous principal, making it look like an access-denied
+                // rather than an authentication-required situation).
+                .authenticationEntryPoint((request, response, authException) -> {
+                    response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
+                    response.setContentType(MediaType.APPLICATION_JSON_VALUE);
+                    response.getWriter().write(
+                        "{\"status\":401,\"error\":\"Unauthorized\"," +
+                        "\"message\":\"Full authentication is required to access this resource\"," +
+                        "\"timestamp\":\"" + LocalDateTime.now() + "\"," +
+                        "\"path\":\"" + request.getRequestURI() + "\"}"
+                    );
+                })
+            );
 
         return http.build();
     }
